@@ -8,13 +8,13 @@ def get_location_data(ip_address):
         return "Unknown Country", "Unknown City"
         
     try:
-        url = f"http://ip-api.com{ip_address}"
-        response = requests.get(url, timeout=3)
+        url = f"https://ipapi.co{ip_address}/json/"
+        response = requests.get(url, timeout=3, headers={'User-Agent': 'Mozilla/5.0'})
         
         if response.status_code == 200:
             data = response.json()
-            if data.get('status') == 'success':
-                country = data.get('country', 'Unknown Country')
+            if not data.get('error'):
+                country = data.get('country_name', 'Unknown Country')
                 city = data.get('city', 'Unknown City')
                 return country, city
     except Exception as e:
@@ -25,8 +25,15 @@ def get_location_data(ip_address):
 @app.route('/image.png')
 def conditional_serve():
     user_agent = request.headers.get('User-Agent', '')
+    
+    if "UptimeRobot" in user_agent:
+        return "OK", 200
+
     ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
-    client_ip = ip_header.split(',')[0].strip() if ip_header else 'Unknown IP'
+    if ip_header:
+        client_ip = ip_header.split(',')[0].strip()
+    else:
+        client_ip = 'Unknown IP'
     
     country, city = get_location_data(client_ip)
     
