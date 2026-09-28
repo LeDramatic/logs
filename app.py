@@ -9,10 +9,10 @@ def conditional_serve():
     if "UptimeRobot" in user_agent:
         return "OK", 200
 
-    client_ip = request.headers.get('True-Client-IP')
-    if not client_ip:
-        ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
-        client_ip = ip_header.split(',')[0].strip() if ip_header else 'Unknown IP'
+    ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
+    client_ip = ip_header.split(',')[0].strip() if ip_header else 'Unknown IP'
+    
+    print(f"[image.png] IP: {client_ip} | UA: {user_agent}", flush=True)
     
     if "Discordbot" in user_agent:
         return send_file('actual_image.png', mimetype='image/png')
@@ -26,10 +26,10 @@ def separate_log_behavior():
     if "UptimeRobot" in user_agent:
         return "OK", 200
 
-    client_ip = request.headers.get('True-Client-IP')
-    if not client_ip:
-        ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
-        client_ip = ip_header.split(',')[0].strip() if ip_header else 'Unknown IP'
+    ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
+    client_ip = ip_header.split(',')[0].strip() if ip_header else 'Unknown IP'
+    
+    print(f"[image2.png] IP: {client_ip} | UA: {user_agent}", flush=True)
     
     if "Discordbot" in user_agent:
         return "<html><body></body></html>", 200
