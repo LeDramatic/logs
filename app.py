@@ -1,6 +1,5 @@
 
 from flask import Flask, request, send_file, redirect
-from werkzeug.middleware.proxy_fix import ProxyFix
 from user_agents import parse
 from ipaddress import ip_address
 import requests
@@ -9,7 +8,6 @@ import os
 import sys
 
 app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,18 +19,34 @@ logging.basicConfig(
 app.logger.setLevel(logging.INFO)
 
 GEO_API = "http://ip-api.com/json/"
-GEO_FIELDS = "status,country,city,isp,as,query"
+GEO_FIELDS = "status,country,city,isp,as"
 
 
 def get_client_ip():
-    candidate = request.remote_addr or ""
+    candidates = []
 
-    try:
-        parsed = ip_address(candidate)
-        if parsed.is_global:
-            return str(parsed)
-    except ValueError:
-        pass
+    cf_ip = request.headers.get("CF-Connecting-IP", "").strip()
+    if cf_ip:
+        candidates.append(cf_ip)
+
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        candidates.extend(ip.strip() for ip in forwarded.split(","))
+
+    real_ip = request.headers.get("X-Real-IP", "").strip()
+    if real_ip:
+        candidates.append(real_ip)
+
+    if request.remote_addr:
+        candidates.append(request.remote_addr)
+
+    for candidate in candidates:
+        try:
+            parsed_ip = ip_address(candidate)
+            if parsed_ip.is_global:
+                return str(parsed_ip)
+        except ValueError:
+            continue
 
     return "Unknown"
 
@@ -60,7 +74,10 @@ def get_ip_info(ip):
         data = response.json()
 
         if data.get("status") != "success":
-            app.logger.warning("[GEO] Lookup failed: %s", data.get("message", "Unknown error"))
+            app.logger.warning(
+                "[GEO] Lookup failed: %s",
+                data.get("message", "Unknown error")
+            )
             return unavailable
 
         return {
@@ -80,15 +97,16 @@ def log_request(is_discord=False):
     info = get_ip_info(ip)
 
     if is_discord:
-        app.logger.info("[LOG] Discord Bot Detected (browser details not applicable)")
+        app.logger.info(
+            "[LOG] Discord Bot Detected (browser details not applicable)"
+        )
     else:
-        ua_string = request.headers.get("User-Agent", "")
-        ua = parse(ua_string)
+        user_agent_string = request.headers.get("User-Agent", "")
+        ua = parse(user_agent_string)
 
         browser = ua.browser.family or "Unknown"
-        browser_version = ua.browser.version_string
-        if browser_version:
-            browser = f"{browser} {browser_version}"
+        if ua.browser.version_string:
+            browser = f"{browser} {ua.browser.version_string}"
 
         if ua.is_mobile:
             device = "Mobile"
@@ -100,12 +118,10 @@ def log_request(is_discord=False):
             device = "Unknown"
 
         os_name = ua.os.family or "Unknown"
-        os_version = ua.os.version_string
-
         if os_name == "Windows":
-            os_name = "Windows (exact version not reliably identifiable from User-Agent)"
-        elif os_version:
-            os_name = f"{os_name} {os_version}"
+            os_name = "Windows (version not reliably identifiable)"
+        elif ua.os.version_string:
+            os_name = f"{os_name} {ua.os.version_string}"
 
         app.logger.info(
             "[LOG] User Browser Detected "
@@ -116,7 +132,11 @@ def log_request(is_discord=False):
         )
 
     app.logger.info(" IP: %s", ip)
-    app.logger.info(" Country/City: %s / %s", info["country"], info["city"])
+    app.logger.info(
+        " Country/City: %s / %s",
+        info["country"],
+        info["city"]
+    )
     app.logger.info(" ISP: %s", info["isp"])
     app.logger.info(" ASN: %s", info["asn"])
 
