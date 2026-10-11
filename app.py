@@ -1,5 +1,6 @@
 
 from flask import Flask, request, send_file, redirect
+from werkzeug.middleware.proxy_fix import ProxyFix
 from user_agents import parse
 from ipaddress import ip_address
 import requests
@@ -8,6 +9,7 @@ import os
 import sys
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,25 +21,20 @@ logging.basicConfig(
 app.logger.setLevel(logging.INFO)
 
 GEO_API = "http://ip-api.com/json/"
-GEO_FIELDS = "status,country,city,isp,as"
-TRUST_PROXY_HEADERS = False
+GEO_FIELDS = "status,country,city,isp,as,query"
 
 
 def get_client_ip():
-    candidate = request.remote_addr
-
-    if TRUST_PROXY_HEADERS:
-        forwarded = request.headers.get("X-Forwarded-For", "")
-        if forwarded:
-            candidate = forwarded.split(",")[0].strip()
-
-    if not candidate:
-        return "Unknown"
+    candidate = request.remote_addr or ""
 
     try:
-        return str(ip_address(candidate))
+        parsed = ip_address(candidate)
+        if parsed.is_global:
+            return str(parsed)
     except ValueError:
-        return "Unknown"
+        pass
+
+    return "Unknown"
 
 
 def get_ip_info(ip):
@@ -45,7 +42,7 @@ def get_ip_info(ip):
         "country": "Unavailable",
         "city": "Unavailable",
         "isp": "Unavailable",
-        "asn": "Unavailable",
+        "asn": "Unavailable"
     }
 
     try:
@@ -57,22 +54,24 @@ def get_ip_info(ip):
         response = requests.get(
             f"{GEO_API}{ip}",
             params={"fields": GEO_FIELDS},
-            timeout=3
+            timeout=5
         )
         response.raise_for_status()
         data = response.json()
 
         if data.get("status") != "success":
+            app.logger.warning("[GEO] Lookup failed: %s", data.get("message", "Unknown error"))
             return unavailable
 
         return {
             "country": data.get("country") or "Unknown",
             "city": data.get("city") or "Unknown",
             "isp": data.get("isp") or "Unknown",
-            "asn": data.get("as") or "Unknown",
+            "asn": data.get("as") or "Unknown"
         }
 
-    except (requests.RequestException, ValueError):
+    except (requests.RequestException, ValueError) as exc:
+        app.logger.warning("[GEO] Lookup error: %s", exc)
         return unavailable
 
 
@@ -81,34 +80,45 @@ def log_request(is_discord=False):
     info = get_ip_info(ip)
 
     if is_discord:
-        app.logger.info("[LOG] Discord Bot Detected (no browser info)")
+        app.logger.info("[LOG] Discord Bot Detected (browser details not applicable)")
     else:
         ua_string = request.headers.get("User-Agent", "")
         ua = parse(ua_string)
 
-        browser = (
-            f"{ua.browser.family} {ua.browser.version_string}"
-            if ua.browser.family != "Other"
-            else "Unknown"
-        )
+        browser = ua.browser.family or "Unknown"
+        browser_version = ua.browser.version_string
+        if browser_version:
+            browser = f"{browser} {browser_version}"
 
-        os_name = (
-            f"{ua.os.family} {ua.os.version_string}"
-            if ua.os.family != "Other"
-            else "Unknown"
-        )
+        if ua.is_mobile:
+            device = "Mobile"
+        elif ua.is_tablet:
+            device = "Tablet"
+        elif ua.is_pc:
+            device = "Desktop"
+        else:
+            device = "Unknown"
 
-        device = ua.device.family or "Unknown"
+        os_name = ua.os.family or "Unknown"
+        os_version = ua.os.version_string
+
+        if os_name == "Windows":
+            os_name = "Windows (exact version not reliably identifiable from User-Agent)"
+        elif os_version:
+            os_name = f"{os_name} {os_version}"
 
         app.logger.info(
-            f"[LOG] User Browser Detected "
-            f"(Browser: {browser} | OS: {os_name} | Device: {device})"
+            "[LOG] User Browser Detected "
+            "(Browser: %s | OS: %s | Device: %s)",
+            browser,
+            os_name,
+            device
         )
 
-    app.logger.info(f" IP: {ip}")
-    app.logger.info(f" Country/City: {info['country']} / {info['city']}")
-    app.logger.info(f" ISP: {info['isp']}")
-    app.logger.info(f" ASN: {info['asn']}")
+    app.logger.info(" IP: %s", ip)
+    app.logger.info(" Country/City: %s / %s", info["country"], info["city"])
+    app.logger.info(" ISP: %s", info["isp"])
+    app.logger.info(" ASN: %s", info["asn"])
 
 
 def is_uptime_robot():
